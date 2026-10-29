@@ -38,12 +38,12 @@
 <section id="settings" class="settings" hidden>
   <div class="shell settings-in">
     <div class="field">
-      <label for="apiKey">Anthropic API key</label>
+      <label for="apiKey">Your own API key <span class="opt">optional</span></label>
       <input type="password" id="apiKey" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
-      <p class="hint">Stored in this browser only, never sent anywhere but Anthropic. Get one at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>.</p>
+      <p class="hint">You don't need one. Without a key you get a few free untangles a day on the shared allowance. Add your own for unlimited use and a sharper model &mdash; it's stored in this browser only and goes nowhere but Anthropic. Get one at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>.</p>
     </div>
     <div class="field">
-      <label for="model">Model</label>
+      <label for="model">Model <span class="opt">used with your own key</span></label>
       <select id="model">
         <option value="claude-sonnet-5-5">Sonnet 5.5 — fast, good default</option>
         <option value="claude-opus-5">Opus 5 — slower, sharper calls</option>
@@ -105,6 +105,7 @@
 
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
+<script src="assets/prompt.js"></script>
 <script src="assets/app.js"></script>
 </body>
 </html>

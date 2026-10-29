@@ -241,24 +241,8 @@
 
   /* ---------- the untangle prompt ---------- */
 
-  var SYSTEM = [
-    "You are TangleWire, a chief of staff for a founder. You are handed a raw dump of everything on their plate and you cut decision fatigue by separating what actually moves the company from what merely feels urgent.",
-    "",
-    "Return ONLY a JSON object, no prose and no code fence, in this exact shape:",
-    '{"strands":[{"title":string,"kind":"load-bearing"|"frayed"|"slack"|"cut","tension":1-5,"why":string,"firstStep":string,"minutes":number,"live":boolean}]}',
-    "",
-    "Rules:",
-    "- Split the dump into discrete strands. Merge duplicates and near-duplicates. One strand is one decidable thing.",
-    "- title: six words or fewer, in the founder's own vocabulary.",
-    "- kind. 'load-bearing' means the company is measurably worse in thirty days if this does not happen. 'frayed' means a hard external deadline or a person actively waiting, so it snaps if ignored. 'slack' means real but costs nothing to leave for weeks. 'cut' means it feels like work and changes nothing.",
-    "- tension 1-5 is how hard it is pulling on their attention right now, which is not the same as how important it is. A nagging trivial thing can be a 5.",
-    "- why: one sentence, concrete, about their situation. No hedging, no 'it is important to'. For a cut strand, say plainly what it is costing them to keep carrying it.",
-    "- firstStep: the smallest physical action that starts it, doable in the next ten minutes. Name the actual move ('Open the deck and delete slides 7 to 12', 'Text Priya one line: shipping Thursday'). Never 'start working on' or 'review'. Omit it for cut strands.",
-    "- minutes: realistic estimate for the first step only, not the whole thing.",
-    "- Exactly one strand has live:true. Pick the highest-leverage thing that can be started right now, preferring something that unblocks other strands. Never pick a cut strand.",
-    "- Be willing to call things noise. A founder who ends with twelve priorities has none. If most of the dump is noise, say so through the kinds.",
-    "- Write to the founder as 'you'. Short sentences. No filler, no praise, no restating their words back at them."
-  ].join("\n");
+  // the prompt lives in assets/prompt.js, shared with the server
+  var SYSTEM = (typeof window !== "undefined" && window.TANGLEWIRE_SYSTEM) || "";
 
   function buildUserMessage(dump, existing) {
     var parts = [];
@@ -287,10 +271,32 @@
     return JSON.parse(t.slice(start, end + 1));
   }
 
-  function callClaude(dump, existing) {
-    if (!state.apiKey) {
-      return Promise.reject(new Error("Add your Anthropic API key in settings first."));
-    }
+  function callViaProxy(dump, existing) {
+    return fetch("api/untangle", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        dump: dump,
+        context: state.context || "",
+        existing: (existing || []).map(function (s) {
+          return { title: s.title, kind: s.kind, tension: s.tension };
+        })
+      })
+    }).then(function (res) {
+      return res.text().then(function (body) {
+        var j = null;
+        try { j = JSON.parse(body); } catch (e) { /* non-JSON error page */ }
+        if (!res.ok) {
+          throw new Error((j && j.error) ||
+            "The sorting service is unavailable right now.");
+        }
+        if (!j || !j.raw) throw new Error("Nothing came back. Try again.");
+        return extractJson(j.raw);
+      });
+    });
+  }
+
+  function callDirect(dump, existing) {
     return fetch(API_URL, {
       method: "POST",
       headers: {
@@ -314,7 +320,7 @@
             if (j && j.error && j.error.message) msg = j.error.message;
           } catch (e) { /* keep the status message */ }
           if (res.status === 401) msg = "That API key was rejected. Check it in settings.";
-          if (res.status === 429) msg = "Rate limited. Wait a moment and untangle again.";
+          if (res.status === 429) msg = "Rate limited. Wait a moment and try again.";
           throw new Error(msg);
         }
         var data = JSON.parse(body);
@@ -325,6 +331,10 @@
         return extractJson(text);
       });
     });
+  }
+
+  function callClaude(dump, existing) {
+    return state.apiKey ? callDirect(dump, existing) : callViaProxy(dump, existing);
   }
 
   /* ---------- turning a reply into strands ---------- */
@@ -630,7 +640,9 @@
       stopLoading();
       var msg = err && err.message ? err.message : "Something went wrong.";
       if (/Failed to fetch|NetworkError/i.test(msg)) {
-        msg = "Couldn't reach Anthropic. Check the connection and the key.";
+        msg = state.apiKey
+          ? "Couldn't reach Anthropic. Check the connection and the key."
+          : "Couldn't reach the server. If you opened this file directly, add your own API key in settings.";
       }
       note(msg, true);
     }).then(function () {
@@ -791,9 +803,7 @@
       handleAction(btn.getAttribute("data-act"), btn.getAttribute("data-id"));
     });
 
-    if (!state.apiKey) {
-      note("Add your API key in settings, or try the example below.");
-    }
+    note("Ready when you are.");
 
     render();
   }

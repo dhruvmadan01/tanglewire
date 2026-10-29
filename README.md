@@ -1,66 +1,83 @@
 # TangleWire
 
-A chief of staff for founders. You dump everything that's on you. TangleWire hands back **one live wire**, the strands that actually hold, and the slack you can drop.
+A chief of staff for founders. You dump everything that's on you. TangleWire hands back **one thing to start now**, the rest sorted by what actually matters, and a pile of what doesn't.
 
 The problem it attacks is decision fatigue: a founder burning their best hours on twenty small calls that don't move anything. TangleWire's opinion is that a list with twelve priorities has none, so it is willing to tell you something is noise.
 
 ## How it works
 
-1. **Dump.** Type everything — half-thoughts, the thing you keep not doing, who's waiting on you.
-2. **Untangle.** Claude splits it into strands and sorts each one:
-   - **Load-bearing** — the company is measurably worse in thirty days without it
-   - **Fraying** — a hard deadline or a person waiting; it snaps if ignored
-   - **Slack** — real, but costs nothing to leave for weeks
-   - **Cut** — feels like work, changes nothing
-3. **Pull.** One strand is marked live: the highest-leverage thing you can start now, with the smallest physical first move and how long it takes.
+1. **Dump.** Type everything — half-thoughts, the thing you keep not doing, who's waiting on you. Don't tidy it up first. Tidying it up is the job.
+2. **Untangle.** Claude splits it into separate things and sorts each one:
+   - **Do these** — the company is measurably worse in thirty days without it
+   - **Deadlines** — a hard date or a person waiting; it snaps if ignored
+   - **Can wait** — real, but costs nothing to leave for weeks
+   - **Noise** — feels like work, changes nothing
+3. **Start.** One item is the live wire: the highest-leverage thing you can begin right now, with the smallest physical first move and how long that move takes.
 
-Each strand also carries a **tension** reading of 1–5 — how hard it's pulling on your attention, which is deliberately not the same as how important it is. A nagging trivial thing can be a 5, and seeing that is the point.
+Each item also carries a **pull** reading of 1–5 — how hard it's tugging at your attention, which is deliberately *not* how important it is. A nagging trivial thing can be a 5, and seeing that is the point.
 
-## Running it
+## Visitors don't need anything
 
-No build step, no dependencies, no server.
+The deployed app works with no sign-up and no key. Requests go to `/api/untangle`, which holds the key server-side, owns the prompt, and caps what each visitor can spend.
+
+Anyone who wants unlimited use can paste their own Anthropic key in settings. Their browser then talks to Anthropic directly and never touches the server.
+
+## Deploying it
+
+The site is static files plus one serverless function. Vercel runs both from the repo with no build step.
+
+1. **Import the repo** at [vercel.com/new](https://vercel.com/new). No framework, no build command, no output directory — Vercel serves the root and treats `api/` as functions.
+2. **Add `ANTHROPIC_API_KEY`** in Project → Settings → Environment Variables. This is the key that pays for visitors.
+3. **Add rate limiting.** In Vercel's Storage tab, create an Upstash Redis store and connect it to the project — it sets `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` for you. Skip this and the endpoint counts nothing: one script can empty your API credit overnight.
+4. **Set a spend cap** on the Anthropic console itself. Belt and braces; the limits below are the belt.
+
+`.env.example` lists every variable. Redeploy after changing any of them.
+
+### The limits, and where to change them
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `TW_MODEL` | `claude-haiku-5-5` | Model used for free visitors. Cheap and good at this task. |
+| `TW_PER_VISITOR_PER_DAY` | `6` | Untangles per IP per day before they're asked for their own key. |
+| `TW_GLOBAL_PER_DAY` | `600` | Ceiling across everyone. Your actual daily spend cap. |
+
+Visitors who hit either limit get a clear message pointing at the settings panel, which is also the cheapest conversion path you have.
+
+## Running it locally
 
 ```bash
 git clone https://github.com/dhruvmadan01/tanglewire.git
 cd tanglewire
-open index.html        # or: python3 -m http.server 8000
+open index.html
 ```
 
-Then open settings (top right) and paste an Anthropic API key from [console.anthropic.com](https://console.anthropic.com/settings/keys). Without a key you can still load a sample tangle to see the shape of it.
-
-The **standing context** field in settings is worth filling in — what the company is, what stage, what you're trying to hit this quarter. It's sent with every untangle and it's the difference between generic advice and a ranking that knows what matters to you.
-
-## Putting it online
-
-Settings → Pages → Source: **Deploy from a branch**, branch `main`, folder `/ (root)`. It'll be live at `https://dhruvmadan01.github.io/tanglewire/` in a minute or two.
-
-## About the API key
-
-The browser calls the Anthropic API directly, using the `anthropic-dangerous-direct-browser-access` header. The key is stored in `localStorage` and never leaves the device except to go to Anthropic — there is no backend here to send it to.
-
-That is fine for a personal tool. It is **not** fine the moment other people use your deployment, because the key travels with the page. When TangleWire gets its first user who isn't you, the fix is a thin proxy — a serverless function that holds the key server-side and forwards `/api/untangle` to Anthropic. The front end changes by one line: point `API_URL` in `assets/app.js` at your own endpoint and drop the key headers.
+Opened as a file there's no server, so paste your own key in settings. For the full thing including the endpoint, `npx vercel dev` with a `.env` file.
 
 ## Files
 
 ```
 index.html          markup and copy
-assets/style.css    tokens, patch-panel layout, light + dark
-assets/app.js       state, rendering, the untangle prompt and API call
+assets/prompt.js    THE PROMPT — shared by the browser and the server
+assets/style.css    tokens, layout, light and dark
+assets/app.js       state, rendering, the two ways of calling Claude
+api/untangle.js     the endpoint: holds the key, owns the prompt, rate limits
 ```
 
-The prompt lives in the `SYSTEM` constant at the top of `app.js`. That prompt is most of the product — if the rankings feel wrong, edit it there rather than anywhere else.
+`assets/prompt.js` is most of the product. It is loaded as a `<script>` in the browser and `require`d by the function, so there is one copy and it cannot drift. If the sorting feels wrong, edit that file and nothing else.
 
 ## Not built yet
 
-- A proxy so the key isn't client-side
-- Morning re-rank on a schedule instead of a button
-- Pulling the dump from somewhere real (inbox, Slack, calendar) instead of typing it
+- Morning re-sort on a schedule instead of a button
+- Pulling the dump from somewhere real (inbox, calendar) instead of typing it
 - History: what you cut, and whether cutting it cost anything
+- Putting the live wire on your calendar and defending the block
+
+That last one is the difference between a tool that gives advice and a tool people pay for.
+
+## Launch film
+
+`media/tanglewire-launch.mp4` — 48 seconds, the real product, voiceover. Shot against the earlier dark look.
 
 ## Licence
 
 MIT
-
-## Launch film
-
-`media/tanglewire-launch.mp4` — 48 seconds, the real product, voiceover. Script and the rendering pipeline that built it are not in this repo; the file is the deliverable.

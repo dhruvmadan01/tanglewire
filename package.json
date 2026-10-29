@@ -1,0 +1,7 @@
+{
+  "name": "tanglewire",
+  "private": true,
+  "version": "1.0.0",
+  "description": "A chief of staff for founders. Dump everything on your plate, get back one thing to start now.",
+  "engines": { "node": ">=20" }
+}
