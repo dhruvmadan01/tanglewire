@@ -1,18 +1,17 @@
 /* The untangle endpoint.
  *
- * Holds the Anthropic key server-side so visitors need nothing of their own,
- * and owns the prompt so this cannot be used as a free, general-purpose LLM.
+ * Holds the model key server-side so visitors need nothing of their own, and
+ * owns the prompt so this cannot be used as a free, general-purpose LLM.
  * Everything the browser sends is treated as untrusted text to be sorted.
+ *
+ * Two providers. Whichever key is set is the one used:
+ *   GEMINI_API_KEY      -> Google, which has a real free tier
+ *   ANTHROPIC_API_KEY   -> Claude, pay as you go
+ * Set both and TW_PROVIDER picks. Visitors who bring their own Anthropic key
+ * never reach this file at all; their browser talks to Anthropic directly.
  */
 
 const { TANGLEWIRE_SYSTEM } = require("../assets/prompt.js");
-
-const API_URL = "https://api.anthropic.com/v1/messages";
-const API_VERSION = "2023-06-01";
-
-// Free visitors get the cheap model. Bring-your-own-key users never reach
-// this file — their browser talks to Anthropic directly.
-const MODEL = process.env.TW_MODEL || "claude-haiku-5-5";
 
 const PER_VISITOR_PER_DAY = int(process.env.TW_PER_VISITOR_PER_DAY, 6);
 const GLOBAL_PER_DAY = int(process.env.TW_GLOBAL_PER_DAY, 600);
@@ -27,25 +26,33 @@ function int(v, d) {
   return Number.isFinite(n) && n > 0 ? n : d;
 }
 
+function provider() {
+  const want = (process.env.TW_PROVIDER || "").trim().toLowerCase();
+  if (want === "gemini" && process.env.GEMINI_API_KEY) return "gemini";
+  if (want === "anthropic" && process.env.ANTHROPIC_API_KEY) return "anthropic";
+  if (process.env.GEMINI_API_KEY) return "gemini";
+  if (process.env.ANTHROPIC_API_KEY) return "anthropic";
+  return null;
+}
+
+function modelFor(which) {
+  if (process.env.TW_MODEL) return process.env.TW_MODEL;
+  return which === "gemini" ? "gemini-2.5-flash" : "claude-haiku-5-5";
+}
+
 function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
 function visitorKey(req) {
   const fwd = String(req.headers["x-forwarded-for"] || "");
-  const ip = fwd.split(",")[0].trim() || req.socket?.remoteAddress || "unknown";
-  return ip;
+  return fwd.split(",")[0].trim() || req.socket?.remoteAddress || "unknown";
 }
 
 /* ---- rate limiting -----------------------------------------------------
- * Uses Upstash Redis over REST when configured. Without it the endpoint
- * still works but counts nothing, which is fine locally and a bad idea in
- * production — the README says so.
- */
-/* Fallback counter used when no Redis is configured. It only sees one warm
- * serverless instance, so it is a speed bump rather than a limit — enough to
- * stop a script hammering a single instance, not enough to be the only guard.
- * The Anthropic console's own spend cap is the real backstop.
+ * Upstash Redis over REST when configured. Without it, a per-instance
+ * counter: a speed bump that stops casual hammering, not a real limit. The
+ * provider's own spend cap is the backstop that cannot be bypassed.
  */
 function memBump(day, visitor) {
   const m = globalThis.__tw_mem || (globalThis.__tw_mem = { day: "", seen: new Map(), total: 0 });
@@ -83,16 +90,84 @@ async function bump(keys) {
   }
 }
 
+/* ---- the two providers ------------------------------------------------- */
+
+async function askGemini(userText) {
+  const model = modelFor("gemini");
+  const url = "https://generativelanguage.googleapis.com/v1beta/models/" +
+    encodeURIComponent(model) + ":generateContent?key=" +
+    encodeURIComponent(process.env.GEMINI_API_KEY);
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: TANGLEWIRE_SYSTEM }] },
+      contents: [{ role: "user", parts: [{ text: userText }] }],
+      generationConfig: {
+        maxOutputTokens: MAX_TOKENS,
+        temperature: 0.4,
+        responseMimeType: "application/json"
+      }
+    })
+  });
+
+  const body = await res.text();
+  if (!res.ok) {
+    let detail = body.slice(0, 300);
+    try { detail = JSON.parse(body)?.error?.message || detail; } catch (e) {}
+    const err = new Error(detail);
+    err.status = res.status;
+    throw err;
+  }
+
+  const data = JSON.parse(body);
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  return parts.map((p) => p.text || "").join("");
+}
+
+async function askAnthropic(userText) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": process.env.ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01"
+    },
+    body: JSON.stringify({
+      model: modelFor("anthropic"),
+      max_tokens: MAX_TOKENS,
+      system: TANGLEWIRE_SYSTEM,
+      messages: [{ role: "user", content: userText }]
+    })
+  });
+
+  const body = await res.text();
+  if (!res.ok) {
+    let detail = body.slice(0, 300);
+    try { detail = JSON.parse(body)?.error?.message || detail; } catch (e) {}
+    const err = new Error(detail);
+    err.status = res.status;
+    throw err;
+  }
+
+  const data = JSON.parse(body);
+  return (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
+}
+
 function bad(res, status, message) {
   res.status(status).json({ error: message });
 }
+
+/* ---- handler ------------------------------------------------------------ */
 
 module.exports = async function handler(req, res) {
   if (req.method === "OPTIONS") { res.status(204).end(); return; }
   if (req.method !== "POST") return bad(res, 405, "Use POST.");
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return bad(res, 503, "This deployment has no API key configured yet.");
+  const which = provider();
+  if (!which) {
+    return bad(res, 503, "This deployment has no model key configured yet.");
   }
 
   let body = req.body;
@@ -109,13 +184,11 @@ module.exports = async function handler(req, res) {
 
   // --- limits ---
   const day = today();
-  const vkey = `tw:v:${day}:${visitorKey(req)}`;
-  const gkey = `tw:g:${day}`;
-  const counts = await bump([vkey, gkey]);
-
+  const visitor = visitorKey(req);
+  const counts = await bump([`tw:v:${day}:${visitor}`, `tw:g:${day}`]);
   const used = counts
-    ? { visitor: counts[vkey], total: counts[gkey] }
-    : memBump(day, visitorKey(req));
+    ? { visitor: counts[`tw:v:${day}:${visitor}`], total: counts[`tw:g:${day}`] }
+    : memBump(day, visitor);
 
   if (used.total > GLOBAL_PER_DAY) {
     return bad(res, 429, "TangleWire has hit its shared limit for today. Add your own API key in settings to keep going.");
@@ -130,8 +203,8 @@ module.exports = async function handler(req, res) {
   if (existing.length) {
     const lines = existing
       .map((s) => {
-        const title = String(s && s.title || "").slice(0, 120);
-        const kind = String(s && s.kind || "").slice(0, 20);
+        const title = String((s && s.title) || "").slice(0, 120);
+        const kind = String((s && s.kind) || "").slice(0, 20);
         const tension = Number(s && s.tension) || 0;
         return title ? `- ${title} [${kind}, tension ${tension}]` : "";
       })
@@ -141,44 +214,25 @@ module.exports = async function handler(req, res) {
     }
   }
   parts.push("Today's dump:\n" + dump);
+  const userText = parts.join("\n\n");
 
   try {
-    const upstream = await fetch(API_URL, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_API_KEY,
-        "anthropic-version": API_VERSION
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: MAX_TOKENS,
-        system: TANGLEWIRE_SYSTEM,
-        messages: [{ role: "user", content: parts.join("\n\n") }]
-      })
-    });
-
-    const text = await upstream.text();
-
-    if (!upstream.ok) {
-      console.error("anthropic", upstream.status, text.slice(0, 400));
-      if (upstream.status === 429 || upstream.status === 529) {
-        return bad(res, 503, "Anthropic is busy right now. Try again in a moment.");
-      }
-      // never leak upstream key or billing detail to the browser
-      return bad(res, 502, "The sorting service is having a problem. Try again shortly.");
+    const raw = which === "gemini" ? await askGemini(userText) : await askAnthropic(userText);
+    if (!raw || !raw.trim()) {
+      return bad(res, 502, "Nothing came back. Try again, or add a bit more detail.");
     }
-
-    const data = JSON.parse(text);
-    let out = "";
-    for (const block of data.content || []) {
-      if (block.type === "text") out += block.text;
-    }
-
     res.setHeader("cache-control", "no-store");
-    res.status(200).json({ raw: out, model: MODEL });
+    res.status(200).json({ raw: raw, model: modelFor(which) });
   } catch (err) {
-    console.error("untangle", err);
-    return bad(res, 502, "Could not reach the sorting service. Try again shortly.");
+    // log the real reason, tell the browser nothing about keys or billing
+    console.error("untangle", which, err && err.status, err && err.message);
+    const s = err && err.status;
+    if (s === 429 || s === 503 || s === 529) {
+      return bad(res, 503, "The free allowance is busy right now. Try again in a minute.");
+    }
+    if (s === 401 || s === 403) {
+      return bad(res, 502, "This deployment's API key isn't working. The owner needs to check it.");
+    }
+    return bad(res, 502, "The sorting service is having a problem. Try again shortly.");
   }
 };

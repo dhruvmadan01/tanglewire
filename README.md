@@ -18,7 +18,7 @@ Each item also carries a **pull** reading of 1–5 — how hard it's tugging at 
 
 ## Visitors don't need anything
 
-The deployed app works with no sign-up and no key. Requests go to `/api/untangle`, which holds the key server-side, owns the prompt, and caps what each visitor can spend.
+The deployed app works with no sign-up and no key. Requests go to `/api/untangle`, which holds the model key server-side, owns the prompt, and caps what each visitor can spend. It runs on Gemini's free tier or on Claude, whichever key the deployment has.
 
 Anyone who wants unlimited use can paste their own Anthropic key in settings. Their browser then talks to Anthropic directly and never touches the server.
 
@@ -29,8 +29,8 @@ Anyone who wants unlimited use can paste their own Anthropic key in settings. Th
 The site is static files plus one serverless function. Vercel runs both from the repo with no build step.
 
 1. **Import the repo** at [vercel.com/new](https://vercel.com/new). No framework, no build command, no output directory — Vercel serves the root and treats `api/` as functions.
-2. **Add `ANTHROPIC_API_KEY`** in Project → Settings → Environment Variables. This is the key that pays for visitors.
-3. **Set a monthly spend limit** on the Anthropic console. This is the backstop that cannot be bypassed, and it matters more than anything else here.
+2. **Add one model key** in Project → Settings → Environment Variables: `GEMINI_API_KEY` (free tier, no card) or `ANTHROPIC_API_KEY` (pay as you go). Whichever is present is used; set `TW_PROVIDER` to pick when both are.
+3. **On Anthropic, set a monthly spend limit.** On Gemini's free tier there is nothing to cap — it cannot bill you.
 4. **Add rate limiting once there's traffic.** Vercel's Storage tab → Upstash Redis → connect. Without it the endpoint falls back to a per-instance counter, which stops casual hammering but is not a real limit.
 
 `.env.example` lists every variable. Redeploy after changing any of them.
@@ -39,7 +39,8 @@ The site is static files plus one serverless function. Vercel runs both from the
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `TW_MODEL` | `claude-haiku-5-5` | Model used for free visitors. Cheap and good at this task. |
+| `TW_PROVIDER` | whichever key is set | `gemini` or `anthropic`. |
+| `TW_MODEL` | `gemini-2.5-flash` / `claude-haiku-5-5` | Model for free visitors. |
 | `TW_PER_VISITOR_PER_DAY` | `6` | Untangles per IP per day before they're asked for their own key. |
 | `TW_GLOBAL_PER_DAY` | `600` | Ceiling across everyone. Your actual daily spend cap. |
 
