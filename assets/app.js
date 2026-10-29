@@ -125,7 +125,7 @@
 
     function readColors() {
       var cs = getComputedStyle(document.documentElement);
-      col.hair = (cs.getPropertyValue("--hair") || "#ccc").trim();
+      col.hair = (cs.getPropertyValue("--muted") || "#888").trim();
       col.live = (cs.getPropertyValue("--amber") || "#c80").trim();
     }
 
@@ -174,7 +174,7 @@
         }
         ctx.strokeStyle = lit ? col.live : col.hair;
         ctx.lineWidth = lit ? 2 : 1.1;
-        ctx.globalAlpha = lit ? 1 : 0.5 + 0.5 * (1 - prog);
+        ctx.globalAlpha = lit ? 1 : 0.34 + 0.4 * (1 - prog);
         ctx.stroke();
       }
       ctx.globalAlpha = 1;

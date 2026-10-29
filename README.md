@@ -60,3 +60,7 @@ The prompt lives in the `SYSTEM` constant at the top of `app.js`. That prompt is
 ## Licence
 
 MIT
+
+## Launch film
+
+`media/tanglewire-launch.mp4` — 48 seconds, the real product, voiceover. Script and the rendering pipeline that built it are not in this repo; the file is the deliverable.
