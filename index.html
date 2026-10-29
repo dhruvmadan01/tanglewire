@@ -7,12 +7,12 @@
 <meta name="description" content="Dump everything that's on you. TangleWire untangles it into one live wire, the strands that hold, and the slack you can drop.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
 
-<a class="skip" href="#dump">Skip to the dump</a>
+<a class="skip" href="#dump">Skip to the box</a>
 
 <header class="topbar">
   <div class="shell topbar-in">
@@ -51,9 +51,9 @@
       </select>
     </div>
     <div class="field">
-      <label for="context">Standing context <span class="opt">optional</span></label>
-      <textarea id="context" rows="3" placeholder="What the company is, what stage, what you're actually trying to hit this quarter."></textarea>
-      <p class="hint">Sent with every untangle so the ranking knows what matters to you.</p>
+      <label for="context">Standing context <span class="opt">worth filling in</span></label>
+      <textarea id="context" rows="3" placeholder="What you're building, what stage, what you're trying to hit this quarter."></textarea>
+      <p class="hint">Sent every time, so the sorting knows what matters to you.</p>
     </div>
     <div class="settings-foot">
       <button type="button" id="wipeBtn" class="btn btn-quiet">Wipe everything on this device</button>
@@ -75,7 +75,7 @@
 
   <section id="dump" class="dump" aria-labelledby="dumpHd">
     <h2 id="dumpHd" class="eyebrow">What's on you</h2>
-    <textarea id="dumpText" rows="5" placeholder="Everything. Half-thoughts, the thing you keep not doing, who's waiting on you, the email you reread this morning. Don't organise it — that's the job."></textarea>
+    <textarea id="dumpText" rows="5" placeholder="Everything. The thing you keep not doing, who's waiting on you, the email you reread this morning. Don't tidy it up first. Tidying it up is the job."></textarea>
     <div class="dump-row">
       <button type="button" id="untangleBtn" class="btn btn-go">Untangle</button>
       <span id="dumpNote" class="note"></span>
@@ -84,14 +84,14 @@
 
   <section id="bundle" class="bundle" aria-labelledby="bundleHd">
     <div class="bundle-hd">
-      <h2 id="bundleHd" class="eyebrow">The bundle</h2>
+      <h2 id="bundleHd" class="eyebrow">Everything else</h2>
       <span id="bundleCount" class="count"></span>
     </div>
     <div id="bundleBody"></div>
   </section>
 
   <section id="pulled" class="pulled" aria-labelledby="pulledHd" hidden>
-    <h2 id="pulledHd" class="eyebrow">Pulled</h2>
+    <h2 id="pulledHd" class="eyebrow">Done today</h2>
     <div id="pulledBody"></div>
   </section>
 
@@ -99,7 +99,7 @@
 
 <footer class="foot">
   <div class="shell">
-    <p>TangleWire runs entirely in this browser. Your dumps, your strands and your key never leave the device except to go to Anthropic.</p>
+    <p>Everything stays in this browser. What you write and your key never leave the device except to go to Anthropic.</p>
   </div>
 </footer>
 

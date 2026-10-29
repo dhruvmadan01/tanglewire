@@ -9,10 +9,10 @@
   var API_VERSION = "2023-06-01";
 
   var KIND = {
-    "load-bearing": { label: "Load-bearing", cls: "k-hold", rank: 0 },
-    "frayed":       { label: "Fraying",      cls: "k-fray", rank: 1 },
-    "slack":        { label: "Slack",        cls: "k-slack", rank: 2 },
-    "cut":          { label: "Cut",          cls: "k-cut",  rank: 3 }
+    "load-bearing": { label: "Do these",   cls: "k-hold",  rank: 0 },
+    "frayed":       { label: "Deadlines",  cls: "k-fray",  rank: 1 },
+    "slack":        { label: "Can wait",   cls: "k-slack", rank: 2 },
+    "cut":          { label: "Noise",      cls: "k-cut",   rank: 3 }
   };
 
   /* ---------- storage ---------- */
@@ -125,8 +125,14 @@
 
     function readColors() {
       var cs = getComputedStyle(document.documentElement);
-      col.hair = (cs.getPropertyValue("--muted") || "#888").trim();
-      col.live = (cs.getPropertyValue("--amber") || "#c80").trim();
+      function v(name, fallback) {
+        return (cs.getPropertyValue(name) || fallback).trim();
+      }
+      var green = v("--green", "#0B7554");
+      var slate = v("--slate", "#44607A");
+      var gold = v("--gold", "#9C6100");
+      col.live = v("--hot", "#DC4A1E");
+      col.pal = [green, slate, gold, green, slate, gold, v("--muted", "#5C6862")];
     }
 
     function resize() {
@@ -172,9 +178,9 @@
             prog * 2.4 * Math.sin(u * Math.PI * 2 + s.p1 + t * 0.22 * speed);
           if (x === -12) ctx.moveTo(x, y); else ctx.lineTo(x, y);
         }
-        ctx.strokeStyle = lit ? col.live : col.hair;
-        ctx.lineWidth = lit ? 2 : 1.1;
-        ctx.globalAlpha = lit ? 1 : 0.34 + 0.4 * (1 - prog);
+        ctx.strokeStyle = lit ? col.live : col.pal[i % col.pal.length];
+        ctx.lineWidth = lit ? 2.4 : 1.3;
+        ctx.globalAlpha = lit ? 1 : 0.42 + 0.3 * (1 - prog);
         ctx.stroke();
       }
       ctx.globalAlpha = 1;
@@ -365,7 +371,7 @@
   function meterHtml(n) {
     var bars = "";
     for (var i = 1; i <= 5; i++) bars += '<i class="' + (i <= n ? "on" : "") + '"></i>';
-    return '<span class="meter" role="img" aria-label="Tension ' + n + ' of 5">' + bars + "</span>";
+    return '<span class="meter" role="img" aria-label="Pulling at you: ' + n + ' of 5">' + bars + "</span>";
   }
 
   function renderLive() {
@@ -384,9 +390,9 @@
           ? '<div class="live-step"><span class="lbl">First move · ' + s.minutes + " min</span><p>" + esc(s.firstStep) + "</p></div>"
           : "") +
         '<div class="live-actions">' +
-          '<button type="button" class="btn btn-primary" data-act="pull" data-id="' + s.id + '">Pulled it</button>' +
+          '<button type="button" class="btn btn-primary" data-act="pull" data-id="' + s.id + '">Done</button>' +
           '<button type="button" class="btn" data-act="next" data-id="' + s.id + '">Not this one</button>' +
-          '<button type="button" class="btn" data-act="coil" data-id="' + s.id + '">Coil it</button>' +
+          '<button type="button" class="btn" data-act="coil" data-id="' + s.id + '">Later</button>' +
         "</div>" +
       "</div>";
   }
@@ -399,9 +405,9 @@
       actions.push('<button type="button" class="chip" data-act="delete" data-id="' + s.id + '">Delete</button>');
     } else {
       if (s.id !== state.liveId) {
-        actions.push('<button type="button" class="chip chip-go" data-act="live" data-id="' + s.id + '">Make it live</button>');
+        actions.push('<button type="button" class="chip chip-go" data-act="live" data-id="' + s.id + '">Do this first</button>');
       }
-      actions.push('<button type="button" class="chip" data-act="pull" data-id="' + s.id + '">Pulled</button>');
+      actions.push('<button type="button" class="chip" data-act="pull" data-id="' + s.id + '">Done</button>');
       actions.push('<button type="button" class="chip chip-cut" data-act="cut" data-id="' + s.id + '">Cut</button>');
     }
 
@@ -418,11 +424,11 @@
 
   function emptyHtml() {
     return '<div class="empty">' +
-      "<p>Nothing on the board. Dump everything that's on you into the box above and hit " +
-      "<strong>Untangle</strong> — it comes back as one live wire, the strands that actually hold, " +
-      "and the slack you can drop.</p>" +
+      "<p>Nothing here yet. Put everything that's on you into the box above and hit " +
+      "<strong>Untangle</strong>. You get back one thing to start now, the rest sorted by " +
+      "what actually matters, and a pile of what doesn't.</p>" +
       '<div class="empty-actions">' +
-        '<button type="button" class="btn" data-act="sample">Load a sample tangle</button>' +
+        '<button type="button" class="btn" data-act="sample">Show me an example</button>' +
       "</div>" +
     "</div>";
   }
@@ -440,7 +446,7 @@
 
     var live = open.filter(function (s) { return s.kind !== "cut"; }).length;
     var cut = open.length - live;
-    count.textContent = live + " carrying" + (cut ? " · " + cut + " cut" : "");
+    count.textContent = live + " to deal with" + (cut ? " · " + cut + " noise" : "");
 
     var order = ["load-bearing", "frayed", "slack", "cut"];
     var html = "";
@@ -456,7 +462,7 @@
       "</section>";
     });
 
-    html += '<div class="dump-row"><button type="button" class="btn btn-quiet" data-act="rerank">Re-rank the bundle</button></div>';
+    html += '<div class="dump-row"><button type="button" class="btn btn-quiet" data-act="rerank">Re-sort everything</button></div>';
     body.innerHTML = html;
   }
 
@@ -481,11 +487,11 @@
     var open = openStrands().filter(function (s) { return s.kind !== "cut"; });
     if (open.length) {
       Wires.mode("resolved");
-      setWireLabel(open.length + " strand" + (open.length === 1 ? "" : "s") +
-        (state.liveId ? " · 1 live" : " · none live"));
+      setWireLabel(open.length + " thing" + (open.length === 1 ? "" : "s") +
+        (state.liveId ? " · 1 to start now" : ""));
     } else {
       Wires.mode("tangled");
-      setWireLabel("Tangled · nothing on the board");
+      setWireLabel("Nothing here yet");
     }
   }
 
@@ -524,16 +530,16 @@
     if (act === "pull") {
       s.status = "pulled";
       if (state.liveId === s.id) pickNextLive(s.id);
-      toast("Pulled: " + s.title);
+      toast("Done: " + s.title);
     } else if (act === "cut") {
       s.kind = "cut";
       s.firstStep = "";
       if (state.liveId === s.id) pickNextLive(s.id);
-      toast("Cut. One less thing pulling.");
+      toast("Gone. One less thing on you.");
     } else if (act === "coil") {
       s.kind = "slack";
       if (state.liveId === s.id) pickNextLive(s.id);
-      toast("Coiled — it'll keep.");
+      toast("Parked. It'll keep.");
     } else if (act === "live") {
       setLive(s.id);
     } else if (act === "next") {
@@ -567,11 +573,11 @@
   }
 
   var LOADING = [
-    "Reading the tangle…",
-    "Separating the strands…",
-    "Working out what's load-bearing…",
-    "Checking what's only noise…",
-    "Picking the live wire…"
+    "Reading it all…",
+    "Pulling the pieces apart…",
+    "Working out what actually matters…",
+    "Spotting what's just noise…",
+    "Picking the one to start with…"
   ];
 
   var loadTimer = null;
@@ -591,12 +597,12 @@
   function untangle() {
     if (state.busy) return;
     var text = $("dumpText").value.trim();
-    if (!text) { note("Nothing to untangle yet.", true); $("dumpText").focus(); return; }
+    if (!text) { note("Put something in the box first.", true); $("dumpText").focus(); return; }
 
     setBusy(true);
     startLoading();
     Wires.mode("working");
-    setWireLabel("Tracing strands…");
+    setWireLabel("Sorting…");
 
     var existing = openStrands().filter(function (s) { return !s.example && s.kind !== "cut"; });
 
@@ -618,7 +624,7 @@
       render();
       flashIn();
       var cut = fresh.filter(function (s) { return s.kind === "cut"; }).length;
-      note(fresh.length + " strands, one live" + (cut ? ", " + cut + " cut" : "") + ".");
+      note(fresh.length + " things, one to start now" + (cut ? ", " + cut + " you can drop" : "") + ".");
       $("live").scrollIntoView({ behavior: "smooth", block: "start" });
     }).catch(function (err) {
       stopLoading();
@@ -643,10 +649,10 @@
         return "- " + s.title + (s.why ? " — " + s.why : "");
       }).join("\n");
 
-    setBusy(true, "Re-ranking…");
+    setBusy(true, "Re-sorting…");
     startLoading();
     Wires.mode("working");
-    setWireLabel("Re-ranking…");
+    setWireLabel("Re-sorting…");
 
     callClaude(dump, []).then(function (raw) {
       var fresh = normalise(raw);
@@ -660,7 +666,7 @@
       persist();
       render();
       flashIn();
-      note("Re-ranked.");
+      note("Re-sorted.");
     }).catch(function (err) {
       stopLoading();
       note(err && err.message ? err.message : "Re-rank failed.", true);
@@ -708,7 +714,7 @@
     persist();
     render();
     flashIn();
-    note("Sample tangle loaded. Add your key to untangle a real one.");
+    note("That's an example. Add your key to do a real one.");
   }
 
   /* ---------- theme ---------- */
@@ -786,7 +792,7 @@
     });
 
     if (!state.apiKey) {
-      note("Add your API key in settings to untangle a real dump.");
+      note("Add your API key in settings, or try the example below.");
     }
 
     render();
