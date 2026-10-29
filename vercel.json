@@ -6,7 +6,23 @@
   "headers": [
     {
       "source": "/api/(.*)",
-      "headers": [{ "key": "cache-control", "value": "no-store" }]
+      "headers": [
+        { "key": "cache-control", "value": "no-store" },
+        { "key": "x-content-type-options", "value": "nosniff" }
+      ]
+    },
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "content-security-policy",
+          "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self' https://api.anthropic.com; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'"
+        },
+        { "key": "x-content-type-options", "value": "nosniff" },
+        { "key": "referrer-policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "permissions-policy", "value": "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()" },
+        { "key": "strict-transport-security", "value": "max-age=31536000; includeSubDomains" }
+      ]
     }
   ]
 }

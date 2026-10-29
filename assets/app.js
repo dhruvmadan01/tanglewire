@@ -402,9 +402,9 @@
           ? '<div class="live-step"><span class="lbl">First move · ' + s.minutes + " min</span><p>" + esc(s.firstStep) + "</p></div>"
           : "") +
         '<div class="live-actions">' +
-          '<button type="button" class="btn btn-primary" data-act="pull" data-id="' + s.id + '">Done</button>' +
-          '<button type="button" class="btn" data-act="next" data-id="' + s.id + '">Not this one</button>' +
-          '<button type="button" class="btn" data-act="coil" data-id="' + s.id + '">Later</button>' +
+          '<button type="button" class="btn btn-primary" data-act="pull" data-id="' + esc(s.id) + '">Done</button>' +
+          '<button type="button" class="btn" data-act="next" data-id="' + esc(s.id) + '">Not this one</button>' +
+          '<button type="button" class="btn" data-act="coil" data-id="' + esc(s.id) + '">Later</button>' +
         "</div>" +
       "</div>";
   }
@@ -413,14 +413,14 @@
     var tag = s.example ? '<span class="example-tag">Example</span>' : "";
     var actions = [];
     if (s.kind === "cut") {
-      actions.push('<button type="button" class="chip chip-go" data-act="restore" data-id="' + s.id + '">Put it back</button>');
-      actions.push('<button type="button" class="chip" data-act="delete" data-id="' + s.id + '">Delete</button>');
+      actions.push('<button type="button" class="chip chip-go" data-act="restore" data-id="' + esc(s.id) + '">Put it back</button>');
+      actions.push('<button type="button" class="chip" data-act="delete" data-id="' + esc(s.id) + '">Delete</button>');
     } else {
       if (s.id !== state.liveId) {
-        actions.push('<button type="button" class="chip chip-go" data-act="live" data-id="' + s.id + '">Do this first</button>');
+        actions.push('<button type="button" class="chip chip-go" data-act="live" data-id="' + esc(s.id) + '">Do this first</button>');
       }
-      actions.push('<button type="button" class="chip" data-act="pull" data-id="' + s.id + '">Done</button>');
-      actions.push('<button type="button" class="chip chip-cut" data-act="cut" data-id="' + s.id + '">Cut</button>');
+      actions.push('<button type="button" class="chip" data-act="pull" data-id="' + esc(s.id) + '">Done</button>');
+      actions.push('<button type="button" class="chip chip-cut" data-act="cut" data-id="' + esc(s.id) + '">Cut</button>');
     }
 
     return '<article class="strand">' +
@@ -486,7 +486,7 @@
     $("pulledBody").innerHTML =
       "<ul>" + done.slice().reverse().map(function (s) {
         return '<li><span class="tick">&times;</span><span class="t">' + esc(s.title) + "</span>" +
-               '<button type="button" class="chip" data-act="restore" data-id="' + s.id + '">Undo</button></li>';
+               '<button type="button" class="chip" data-act="restore" data-id="' + esc(s.id) + '">Undo</button></li>';
       }).join("") + "</ul>";
   }
 

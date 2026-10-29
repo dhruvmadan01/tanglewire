@@ -77,6 +77,10 @@ api/untangle.js     the endpoint: holds the key, owns the prompt, rate limits
 
 That last one is the difference between a tool that gives advice and a tool people pay for.
 
+## Security
+
+[SECURITY.md](SECURITY.md) — what protects the key, what stops the endpoint being abused, and what to do the moment a key leaks.
+
 ## Launch film
 
 `media/tanglewire-launch.mp4` — 48 seconds, the real product, voiceover. Shot against the earlier dark look.

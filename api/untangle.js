@@ -155,6 +155,35 @@ async function askAnthropic(userText) {
   return (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
 }
 
+/* A browser request from another site has no business here. Requests with no
+ * Origin at all (scripts, curl) still get through — the rate limits are what
+ * hold the line there — but this stops the endpoint being embedded as a free
+ * backend for someone else's page.
+ */
+function originAllowed(req) {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  const host = req.headers["x-forwarded-host"] || req.headers.host || "";
+  try {
+    if (new URL(origin).host === host) return true;
+  } catch (e) {
+    return false;
+  }
+  const extra = String(process.env.TW_ALLOWED_ORIGINS || "")
+    .split(",").map((x) => x.trim()).filter(Boolean);
+  return extra.includes(origin);
+}
+
+function redact(v) {
+  let t = typeof v === "string" ? v : String(v == null ? "" : v);
+  for (const k of [process.env.GEMINI_API_KEY, process.env.ANTHROPIC_API_KEY]) {
+    if (k && k.length > 6) t = t.split(k).join("[key]");
+  }
+  // and anything key-shaped we did not plant ourselves
+  return t.replace(/\bkey=[^&\s"']+/gi, "key=[redacted]")
+          .replace(/\b(sk-ant-|AIza|AQ\.)[A-Za-z0-9_-]{8,}/g, "[redacted]");
+}
+
 function bad(res, status, message) {
   res.status(status).json({ error: message });
 }
@@ -164,6 +193,7 @@ function bad(res, status, message) {
 module.exports = async function handler(req, res) {
   if (req.method === "OPTIONS") { res.status(204).end(); return; }
   if (req.method !== "POST") return bad(res, 405, "Use POST.");
+  if (!originAllowed(req)) return bad(res, 403, "Not available from this site.");
 
   const which = provider();
   if (!which) {
@@ -225,7 +255,7 @@ module.exports = async function handler(req, res) {
     res.status(200).json({ raw: raw, model: modelFor(which) });
   } catch (err) {
     // log the real reason, tell the browser nothing about keys or billing
-    console.error("untangle", which, err && err.status, err && err.message);
+    console.error("untangle", which, err && err.status, redact(err && err.message));
     const s = err && err.status;
     if (s === 429 || s === 503 || s === 529) {
       return bad(res, 503, "The free allowance is busy right now. Try again in a minute.");
