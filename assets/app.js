@@ -100,6 +100,139 @@
     return null;
   }
 
+  /* ---------- the wire strip ----------
+   * Seven wires across the top. Knotted when the board is empty,
+   * writhing while Claude reads the dump, combed straight with one
+   * live wire picked out once it comes back.
+   */
+
+  var Wires = (function () {
+    var cv, ctx, raf = null, w = 0, h = 0, running = false;
+    var N = 7, seeds = [], col = {};
+    var prog = 0, target = 0, speed = 1, targetSpeed = 1, liveLane = 3;
+    var reduce = false, lastMode = null;
+
+    for (var i = 0; i < N; i++) {
+      seeds.push({
+        f1: 0.7 + Math.random() * 1.5,
+        f2: 1.6 + Math.random() * 2.2,
+        p1: Math.random() * Math.PI * 2,
+        p2: Math.random() * Math.PI * 2,
+        amp: 0.55 + Math.random() * 0.5,
+        sp: 0.16 + Math.random() * 0.2
+      });
+    }
+
+    function readColors() {
+      var cs = getComputedStyle(document.documentElement);
+      col.hair = (cs.getPropertyValue("--hair") || "#ccc").trim();
+      col.live = (cs.getPropertyValue("--amber") || "#c80").trim();
+    }
+
+    function resize() {
+      if (!cv) return;
+      var dpr = Math.min(window.devicePixelRatio || 1, 2);
+      var r = cv.getBoundingClientRect();
+      w = Math.max(1, Math.round(r.width));
+      h = Math.max(1, Math.round(r.height));
+      cv.width = Math.round(w * dpr);
+      cv.height = Math.round(h * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      if (reduce) frame(0);
+    }
+
+    function frame(now) {
+      if (!ctx) return;
+      var t = now / 1000;
+
+      if (reduce) { prog = target; speed = 0; }
+      else {
+        prog += (target - prog) * 0.055;
+        speed += (targetSpeed - speed) * 0.05;
+      }
+
+      ctx.clearRect(0, 0, w, h);
+      var pad = 13;
+      var span = Math.max(10, h - pad * 2);
+
+      for (var i = 0; i < N; i++) {
+        var s = seeds[i];
+        var lane = pad + span * ((i + 0.5) / N);
+        var amp = (1 - prog) * s.amp * (span * 0.46);
+        var lit = prog > 0.55 && i === liveLane;
+
+        ctx.beginPath();
+        for (var x = -12; x <= w + 12; x += 5) {
+          var u = x / (w || 1);
+          var y = lane +
+            amp * Math.sin(u * s.f1 * Math.PI * 2 + s.p1 + t * s.sp * speed) +
+            amp * 0.55 * Math.sin(u * s.f2 * Math.PI * 2 + s.p2 - t * s.sp * 0.7 * speed) +
+            prog * 2.4 * Math.sin(u * Math.PI * 2 + s.p1 + t * 0.22 * speed);
+          if (x === -12) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.strokeStyle = lit ? col.live : col.hair;
+        ctx.lineWidth = lit ? 2 : 1.1;
+        ctx.globalAlpha = lit ? 1 : 0.5 + 0.5 * (1 - prog);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+
+      if (!reduce && running) raf = requestAnimationFrame(frame);
+    }
+
+    function start() {
+      if (reduce || running) return;
+      running = true;
+      raf = requestAnimationFrame(frame);
+    }
+
+    function stop() {
+      running = false;
+      if (raf) cancelAnimationFrame(raf);
+      raf = null;
+    }
+
+    return {
+      init: function () {
+        cv = $("wires");
+        if (!cv || !cv.getContext) return;
+        ctx = cv.getContext("2d");
+        try {
+          reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        } catch (e) { reduce = false; }
+        readColors();
+        resize();
+        window.addEventListener("resize", resize);
+        document.addEventListener("visibilitychange", function () {
+          if (document.hidden) stop(); else start();
+        });
+        start();
+      },
+      recolor: function () { if (ctx) { readColors(); if (reduce) frame(0); } },
+      mode: function (m) {
+        if (!ctx || m === lastMode) return;
+        lastMode = m;
+        liveLane = 2 + Math.floor(Math.random() * 3);
+        if (m === "working") { target = 0; targetSpeed = 5.5; }
+        else if (m === "resolved") { target = 1; targetSpeed = 0.75; }
+        else { target = 0; targetSpeed = 1; }
+        if (reduce) frame(0);
+      }
+    };
+  })();
+
+  function flashIn() {
+    try {
+      var nodes = document.querySelectorAll(".live-card, .strand");
+      for (var i = 0; i < nodes.length && i < 14; i++) {
+        nodes[i].classList.add("just-in");
+        nodes[i].style.animationDelay = (i * 45) + "ms";
+      }
+    } catch (e) { /* decoration only */ }
+  }
+
   /* ---------- the untangle prompt ---------- */
 
   var SYSTEM = [
@@ -339,10 +472,28 @@
       }).join("") + "</ul>";
   }
 
+  function setWireLabel(txt) {
+    var el = $("wireLabel");
+    if (el) el.textContent = txt;
+  }
+
+  function syncWires() {
+    var open = openStrands().filter(function (s) { return s.kind !== "cut"; });
+    if (open.length) {
+      Wires.mode("resolved");
+      setWireLabel(open.length + " strand" + (open.length === 1 ? "" : "s") +
+        (state.liveId ? " · 1 live" : " · none live"));
+    } else {
+      Wires.mode("tangled");
+      setWireLabel("Tangled · nothing on the board");
+    }
+  }
+
   function render() {
     renderLive();
     renderBundle();
     renderPulled();
+    if (!state.busy) syncWires();
   }
 
   /* ---------- actions ---------- */
@@ -415,13 +566,37 @@
     el.className = "note" + (bad ? " bad" : "");
   }
 
+  var LOADING = [
+    "Reading the tangle…",
+    "Separating the strands…",
+    "Working out what's load-bearing…",
+    "Checking what's only noise…",
+    "Picking the live wire…"
+  ];
+
+  var loadTimer = null;
+
+  function startLoading() {
+    var i = 0;
+    note(LOADING[0]);
+    clearInterval(loadTimer);
+    loadTimer = setInterval(function () {
+      i = (i + 1) % LOADING.length;
+      note(LOADING[i]);
+    }, 1700);
+  }
+
+  function stopLoading() { clearInterval(loadTimer); loadTimer = null; }
+
   function untangle() {
     if (state.busy) return;
     var text = $("dumpText").value.trim();
     if (!text) { note("Nothing to untangle yet.", true); $("dumpText").focus(); return; }
 
     setBusy(true);
-    note("Reading the tangle…");
+    startLoading();
+    Wires.mode("working");
+    setWireLabel("Tracing strands…");
 
     var existing = openStrands().filter(function (s) { return !s.example && s.kind !== "cut"; });
 
@@ -437,11 +612,16 @@
       state.liveId = live ? live.id : null;
 
       $("dumpText").value = "";
+      state.busy = false;
+      stopLoading();
       persist();
       render();
-      note(fresh.length + " strands. One live.");
+      flashIn();
+      var cut = fresh.filter(function (s) { return s.kind === "cut"; }).length;
+      note(fresh.length + " strands, one live" + (cut ? ", " + cut + " cut" : "") + ".");
       $("live").scrollIntoView({ behavior: "smooth", block: "start" });
     }).catch(function (err) {
+      stopLoading();
       var msg = err && err.message ? err.message : "Something went wrong.";
       if (/Failed to fetch|NetworkError/i.test(msg)) {
         msg = "Couldn't reach Anthropic. Check the connection and the key.";
@@ -449,6 +629,8 @@
       note(msg, true);
     }).then(function () {
       setBusy(false);
+      stopLoading();
+      syncWires();
     });
   }
 
@@ -462,7 +644,9 @@
       }).join("\n");
 
     setBusy(true, "Re-ranking…");
-    note("Re-ranking the bundle…");
+    startLoading();
+    Wires.mode("working");
+    setWireLabel("Re-ranking…");
 
     callClaude(dump, []).then(function (raw) {
       var fresh = normalise(raw);
@@ -471,13 +655,19 @@
       state.strands = pulled.concat(fresh);
       var live = fresh.filter(function (s) { return s.live; })[0];
       state.liveId = live ? live.id : null;
+      state.busy = false;
+      stopLoading();
       persist();
       render();
+      flashIn();
       note("Re-ranked.");
     }).catch(function (err) {
+      stopLoading();
       note(err && err.message ? err.message : "Re-rank failed.", true);
     }).then(function () {
       setBusy(false);
+      stopLoading();
+      syncWires();
     });
   }
 
@@ -517,6 +707,7 @@
     state.liveId = fresh[2].id;
     persist();
     render();
+    flashIn();
     note("Sample tangle loaded. Add your key to untangle a real one.");
   }
 
@@ -535,6 +726,7 @@
     var next = cur === "system" ? "dark" : cur === "dark" ? "light" : "system";
     save(KEYS.theme, next);
     applyTheme(next);
+    Wires.recolor();
     toast("Theme: " + next);
   }
 
@@ -542,6 +734,7 @@
 
   function init() {
     applyTheme(load(KEYS.theme, "system"));
+    Wires.init();
 
     $("apiKey").value = state.apiKey;
     $("model").value = state.model;
