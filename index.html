@@ -68,18 +68,43 @@
 
 <main class="shell">
 
+  <section id="intro" class="intro" aria-labelledby="introHd" hidden>
+    <p class="intro-eyebrow">A chief of staff for founders</p>
+    <h1 id="introHd">What should you actually be doing right now?</h1>
+    <p class="intro-sub">Put everything that's on you in the box below. You get back one thing to
+      start now, the rest sorted by what really matters, and permission to drop the rest.</p>
+  </section>
+
   <section id="live" class="live" aria-labelledby="liveHd" hidden>
     <h2 id="liveHd" class="eyebrow">The live wire</h2>
     <div id="liveBody"></div>
   </section>
+
+  <div id="exampleBar" class="exbar" hidden>
+    <p>This is an <strong>example board</strong>, not yours. The orange card is where you'd start.
+      The crossed-out one is what it decided wasn't worth doing at all.</p>
+    <button type="button" class="btn btn-quiet" data-act="clearexample">Clear it, I'll do mine</button>
+  </div>
 
   <section id="dump" class="dump" aria-labelledby="dumpHd">
     <h2 id="dumpHd" class="eyebrow">What's on you</h2>
     <textarea id="dumpText" rows="5" placeholder="Everything. The thing you keep not doing, who's waiting on you, the email you reread this morning. Don't tidy it up first. Tidying it up is the job."></textarea>
     <div class="dump-row">
       <button type="button" id="untangleBtn" class="btn btn-go">Untangle</button>
+      <button type="button" id="exampleBtn" class="btn btn-quiet" data-act="sample">Show me an example</button>
       <span id="dumpNote" class="note"></span>
     </div>
+  </section>
+
+  <section id="steps" class="stepwrap" hidden>
+    <ol class="steps">
+      <li class="step-hold"><span class="dot" aria-hidden="true"></span>
+        <strong>Dump it all</strong>Messy is fine. Don't sort it first.</li>
+      <li class="step-fray"><span class="dot" aria-hidden="true"></span>
+        <strong>It sorts</strong>Do these, deadlines, can wait, noise.</li>
+      <li class="step-slack"><span class="dot" aria-hidden="true"></span>
+        <strong>Start one thing</strong>With the first move, and how long it takes.</li>
+    </ol>
   </section>
 
   <section id="bundle" class="bundle" aria-labelledby="bundleHd">

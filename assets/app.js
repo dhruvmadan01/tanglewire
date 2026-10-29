@@ -23,6 +23,7 @@
     model:   "tanglewire.model",
     context: "tanglewire.context",
     theme:   "tanglewire.theme",
+    seen:    "tanglewire.seen",
     live:    "tanglewire.live"
   };
 
@@ -50,6 +51,7 @@
     apiKey:  load(KEYS.apiKey, ""),
     model:   load(KEYS.model, "claude-sonnet-5-5"),
     context: load(KEYS.context, ""),
+    seen:    load(KEYS.seen, false),
     busy:    false
   };
 
@@ -505,10 +507,31 @@
     }
   }
 
+  function hasRealStrands() {
+    return state.strands.some(function (s) { return !s.example; });
+  }
+
+  function showingExample() {
+    return openStrands().some(function (s) { return s.example; });
+  }
+
+  function renderIntro() {
+    var first = !state.seen && !hasRealStrands() && openStrands().length === 0;
+    $("intro").hidden = !first;
+    $("steps").hidden = !first;
+    $("exampleBar").hidden = !showingExample();
+    $("exampleBtn").hidden = openStrands().length > 0;
+    return first;
+  }
+
   function render() {
+    var first = renderIntro();
     renderLive();
     renderBundle();
     renderPulled();
+    // on a cold visit the board is empty, so its empty state would just
+    // repeat what the intro already says
+    $("bundle").hidden = first;
     if (!state.busy) syncWires();
   }
 
@@ -535,6 +558,15 @@
 
     if (act === "sample") { loadSample(); return; }
     if (act === "rerank") { rerank(); return; }
+    if (act === "clearexample") {
+      state.strands = state.strands.filter(function (x) { return !x.example; });
+      if (!byId(state.liveId)) state.liveId = null;
+      persist();
+      render();
+      note("Your turn. What's on you?");
+      $("dumpText").focus();
+      return;
+    }
     if (!s) return;
 
     if (act === "pull") {
@@ -629,6 +661,8 @@
 
       $("dumpText").value = "";
       state.busy = false;
+      state.seen = true;
+      save(KEYS.seen, true);
       stopLoading();
       persist();
       render();
@@ -792,6 +826,7 @@
         try { localStorage.removeItem(KEYS[k]); } catch (e) {}
       });
       state.strands = []; state.liveId = null; state.apiKey = ""; state.context = "";
+      state.seen = false;
       $("apiKey").value = ""; $("context").value = "";
       render();
       toast("Wiped. Nothing left on this device.");
@@ -803,7 +838,7 @@
       handleAction(btn.getAttribute("data-act"), btn.getAttribute("data-id"));
     });
 
-    note("Ready when you are.");
+    note("");
 
     render();
   }
