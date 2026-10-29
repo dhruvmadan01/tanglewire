@@ -24,12 +24,14 @@ Anyone who wants unlimited use can paste their own Anthropic key in settings. Th
 
 ## Deploying it
 
+**[DEPLOY.md](DEPLOY.md) is the step-by-step version, written for someone who doesn't write code.** The short version follows.
+
 The site is static files plus one serverless function. Vercel runs both from the repo with no build step.
 
 1. **Import the repo** at [vercel.com/new](https://vercel.com/new). No framework, no build command, no output directory — Vercel serves the root and treats `api/` as functions.
 2. **Add `ANTHROPIC_API_KEY`** in Project → Settings → Environment Variables. This is the key that pays for visitors.
-3. **Add rate limiting.** In Vercel's Storage tab, create an Upstash Redis store and connect it to the project — it sets `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` for you. Skip this and the endpoint counts nothing: one script can empty your API credit overnight.
-4. **Set a spend cap** on the Anthropic console itself. Belt and braces; the limits below are the belt.
+3. **Set a monthly spend limit** on the Anthropic console. This is the backstop that cannot be bypassed, and it matters more than anything else here.
+4. **Add rate limiting once there's traffic.** Vercel's Storage tab → Upstash Redis → connect. Without it the endpoint falls back to a per-instance counter, which stops casual hammering but is not a real limit.
 
 `.env.example` lists every variable. Redeploy after changing any of them.
 

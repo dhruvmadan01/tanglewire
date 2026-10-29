@@ -42,6 +42,21 @@ function visitorKey(req) {
  * still works but counts nothing, which is fine locally and a bad idea in
  * production — the README says so.
  */
+/* Fallback counter used when no Redis is configured. It only sees one warm
+ * serverless instance, so it is a speed bump rather than a limit — enough to
+ * stop a script hammering a single instance, not enough to be the only guard.
+ * The Anthropic console's own spend cap is the real backstop.
+ */
+function memBump(day, visitor) {
+  const m = globalThis.__tw_mem || (globalThis.__tw_mem = { day: "", seen: new Map(), total: 0 });
+  if (m.day !== day) { m.day = day; m.seen.clear(); m.total = 0; }
+  if (m.seen.size > 5000) m.seen.clear();
+  m.total += 1;
+  const v = (m.seen.get(visitor) || 0) + 1;
+  m.seen.set(visitor, v);
+  return { visitor: v, total: m.total };
+}
+
 async function bump(keys) {
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -98,13 +113,15 @@ module.exports = async function handler(req, res) {
   const gkey = `tw:g:${day}`;
   const counts = await bump([vkey, gkey]);
 
-  if (counts) {
-    if (counts[gkey] > GLOBAL_PER_DAY) {
-      return bad(res, 429, "TangleWire has hit its shared limit for today. Add your own API key in settings to keep going.");
-    }
-    if (counts[vkey] > PER_VISITOR_PER_DAY) {
-      return bad(res, 429, `That's your ${PER_VISITOR_PER_DAY} free untangles for today. Add your own API key in settings for unlimited use.`);
-    }
+  const used = counts
+    ? { visitor: counts[vkey], total: counts[gkey] }
+    : memBump(day, visitorKey(req));
+
+  if (used.total > GLOBAL_PER_DAY) {
+    return bad(res, 429, "TangleWire has hit its shared limit for today. Add your own API key in settings to keep going.");
+  }
+  if (used.visitor > PER_VISITOR_PER_DAY) {
+    return bad(res, 429, `That's your ${PER_VISITOR_PER_DAY} free untangles for today. Add your own API key in settings for unlimited use.`);
   }
 
   // --- build the message ---
