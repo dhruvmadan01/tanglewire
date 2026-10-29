@@ -1,0 +1,607 @@
+/* TangleWire — a chief of staff for founders.
+ * Everything runs in the browser. Strands, key and context live in
+ * localStorage; the only network call goes to the Anthropic API.
+ */
+(function () {
+  "use strict";
+
+  var API_URL = "https://api.anthropic.com/v1/messages";
+  var API_VERSION = "2023-06-01";
+
+  var KIND = {
+    "load-bearing": { label: "Load-bearing", cls: "k-hold", rank: 0 },
+    "frayed":       { label: "Fraying",      cls: "k-fray", rank: 1 },
+    "slack":        { label: "Slack",        cls: "k-slack", rank: 2 },
+    "cut":          { label: "Cut",          cls: "k-cut",  rank: 3 }
+  };
+
+  /* ---------- storage ---------- */
+
+  var KEYS = {
+    strands: "tanglewire.strands",
+    apiKey:  "tanglewire.key",
+    model:   "tanglewire.model",
+    context: "tanglewire.context",
+    theme:   "tanglewire.theme",
+    live:    "tanglewire.live"
+  };
+
+  function load(key, fallback) {
+    try {
+      var raw = localStorage.getItem(key);
+      if (raw === null) return fallback;
+      return JSON.parse(raw);
+    } catch (e) {
+      return fallback;
+    }
+  }
+
+  function save(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (e) {
+      /* private window, blocked storage — the page still works for this session */
+    }
+  }
+
+  var state = {
+    strands: load(KEYS.strands, []),
+    liveId:  load(KEYS.live, null),
+    apiKey:  load(KEYS.apiKey, ""),
+    model:   load(KEYS.model, "claude-sonnet-5-5"),
+    context: load(KEYS.context, ""),
+    busy:    false
+  };
+
+  function persist() {
+    save(KEYS.strands, state.strands);
+    save(KEYS.live, state.liveId);
+  }
+
+  /* ---------- helpers ---------- */
+
+  function $(id) { return document.getElementById(id); }
+
+  function esc(s) {
+    return String(s === undefined || s === null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function uid() {
+    return "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  }
+
+  function clamp(n, lo, hi) {
+    n = Math.round(Number(n));
+    if (!isFinite(n)) return lo;
+    return Math.max(lo, Math.min(hi, n));
+  }
+
+  var toastTimer = null;
+  function toast(msg) {
+    var el = $("toast");
+    el.textContent = msg;
+    el.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.hidden = true; }, 3400);
+  }
+
+  function openStrands() {
+    return state.strands.filter(function (s) { return s.status !== "pulled"; });
+  }
+
+  function byId(id) {
+    for (var i = 0; i < state.strands.length; i++) {
+      if (state.strands[i].id === id) return state.strands[i];
+    }
+    return null;
+  }
+
+  /* ---------- the untangle prompt ---------- */
+
+  var SYSTEM = [
+    "You are TangleWire, a chief of staff for a founder. You are handed a raw dump of everything on their plate and you cut decision fatigue by separating what actually moves the company from what merely feels urgent.",
+    "",
+    "Return ONLY a JSON object, no prose and no code fence, in this exact shape:",
+    '{"strands":[{"title":string,"kind":"load-bearing"|"frayed"|"slack"|"cut","tension":1-5,"why":string,"firstStep":string,"minutes":number,"live":boolean}]}',
+    "",
+    "Rules:",
+    "- Split the dump into discrete strands. Merge duplicates and near-duplicates. One strand is one decidable thing.",
+    "- title: six words or fewer, in the founder's own vocabulary.",
+    "- kind. 'load-bearing' means the company is measurably worse in thirty days if this does not happen. 'frayed' means a hard external deadline or a person actively waiting, so it snaps if ignored. 'slack' means real but costs nothing to leave for weeks. 'cut' means it feels like work and changes nothing.",
+    "- tension 1-5 is how hard it is pulling on their attention right now, which is not the same as how important it is. A nagging trivial thing can be a 5.",
+    "- why: one sentence, concrete, about their situation. No hedging, no 'it is important to'. For a cut strand, say plainly what it is costing them to keep carrying it.",
+    "- firstStep: the smallest physical action that starts it, doable in the next ten minutes. Name the actual move ('Open the deck and delete slides 7 to 12', 'Text Priya one line: shipping Thursday'). Never 'start working on' or 'review'. Omit it for cut strands.",
+    "- minutes: realistic estimate for the first step only, not the whole thing.",
+    "- Exactly one strand has live:true. Pick the highest-leverage thing that can be started right now, preferring something that unblocks other strands. Never pick a cut strand.",
+    "- Be willing to call things noise. A founder who ends with twelve priorities has none. If most of the dump is noise, say so through the kinds.",
+    "- Write to the founder as 'you'. Short sentences. No filler, no praise, no restating their words back at them."
+  ].join("\n");
+
+  function buildUserMessage(dump, existing) {
+    var parts = [];
+    if (state.context && state.context.trim()) {
+      parts.push("Standing context on the founder and company:\n" + state.context.trim());
+    }
+    if (existing && existing.length) {
+      parts.push(
+        "Strands already on the board (re-rank these together with anything new, keep titles stable where the thing is the same):\n" +
+        existing.map(function (s) {
+          return "- " + s.title + " [" + s.kind + ", tension " + s.tension + "]";
+        }).join("\n")
+      );
+    }
+    parts.push("Today's dump:\n" + dump.trim());
+    return parts.join("\n\n");
+  }
+
+  function extractJson(text) {
+    var t = String(text || "").trim();
+    var fence = t.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (fence) t = fence[1].trim();
+    var start = t.indexOf("{");
+    var end = t.lastIndexOf("}");
+    if (start === -1 || end === -1 || end < start) throw new Error("No JSON in the reply.");
+    return JSON.parse(t.slice(start, end + 1));
+  }
+
+  function callClaude(dump, existing) {
+    if (!state.apiKey) {
+      return Promise.reject(new Error("Add your Anthropic API key in settings first."));
+    }
+    return fetch(API_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": state.apiKey,
+        "anthropic-version": API_VERSION,
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: state.model,
+        max_tokens: 3000,
+        system: SYSTEM,
+        messages: [{ role: "user", content: buildUserMessage(dump, existing) }]
+      })
+    }).then(function (res) {
+      return res.text().then(function (body) {
+        if (!res.ok) {
+          var msg = "Anthropic returned " + res.status + ".";
+          try {
+            var j = JSON.parse(body);
+            if (j && j.error && j.error.message) msg = j.error.message;
+          } catch (e) { /* keep the status message */ }
+          if (res.status === 401) msg = "That API key was rejected. Check it in settings.";
+          if (res.status === 429) msg = "Rate limited. Wait a moment and untangle again.";
+          throw new Error(msg);
+        }
+        var data = JSON.parse(body);
+        var text = "";
+        (data.content || []).forEach(function (block) {
+          if (block.type === "text") text += block.text;
+        });
+        return extractJson(text);
+      });
+    });
+  }
+
+  /* ---------- turning a reply into strands ---------- */
+
+  function normalise(raw) {
+    var list = (raw && raw.strands) || [];
+    var out = [];
+    var liveSeen = false;
+
+    list.forEach(function (s) {
+      var kind = KIND[s.kind] ? s.kind : "slack";
+      var strand = {
+        id: uid(),
+        title: String(s.title || "Untitled strand").slice(0, 120),
+        kind: kind,
+        tension: clamp(s.tension, 1, 5),
+        why: String(s.why || "").slice(0, 400),
+        firstStep: kind === "cut" ? "" : String(s.firstStep || "").slice(0, 400),
+        minutes: clamp(s.minutes, 1, 480),
+        status: "open",
+        example: false
+      };
+      if (s.live && !liveSeen && kind !== "cut") {
+        strand.live = true;
+        liveSeen = true;
+      }
+      out.push(strand);
+    });
+
+    if (!liveSeen) {
+      var best = null;
+      out.forEach(function (s) {
+        if (s.kind === "cut") return;
+        if (!best || KIND[s.kind].rank < KIND[best.kind].rank ||
+           (KIND[s.kind].rank === KIND[best.kind].rank && s.tension > best.tension)) best = s;
+      });
+      if (best) best.live = true;
+    }
+    return out;
+  }
+
+  /* ---------- rendering ---------- */
+
+  function meterHtml(n) {
+    var bars = "";
+    for (var i = 1; i <= 5; i++) bars += '<i class="' + (i <= n ? "on" : "") + '"></i>';
+    return '<span class="meter" role="img" aria-label="Tension ' + n + ' of 5">' + bars + "</span>";
+  }
+
+  function renderLive() {
+    var sec = $("live");
+    var s = state.liveId ? byId(state.liveId) : null;
+    if (!s || s.status === "pulled" || s.kind === "cut") {
+      sec.hidden = true;
+      return;
+    }
+    sec.hidden = false;
+    $("liveBody").innerHTML =
+      '<div class="live-card">' +
+        "<h3>" + esc(s.title) + "</h3>" +
+        (s.why ? '<p class="live-why">' + esc(s.why) + "</p>" : "") +
+        (s.firstStep
+          ? '<div class="live-step"><span class="lbl">First move · ' + s.minutes + " min</span><p>" + esc(s.firstStep) + "</p></div>"
+          : "") +
+        '<div class="live-actions">' +
+          '<button type="button" class="btn btn-primary" data-act="pull" data-id="' + s.id + '">Pulled it</button>' +
+          '<button type="button" class="btn" data-act="next" data-id="' + s.id + '">Not this one</button>' +
+          '<button type="button" class="btn" data-act="coil" data-id="' + s.id + '">Coil it</button>' +
+        "</div>" +
+      "</div>";
+  }
+
+  function strandHtml(s) {
+    var tag = s.example ? '<span class="example-tag">Example</span>' : "";
+    var actions = [];
+    if (s.kind === "cut") {
+      actions.push('<button type="button" class="chip chip-go" data-act="restore" data-id="' + s.id + '">Put it back</button>');
+      actions.push('<button type="button" class="chip" data-act="delete" data-id="' + s.id + '">Delete</button>');
+    } else {
+      if (s.id !== state.liveId) {
+        actions.push('<button type="button" class="chip chip-go" data-act="live" data-id="' + s.id + '">Make it live</button>');
+      }
+      actions.push('<button type="button" class="chip" data-act="pull" data-id="' + s.id + '">Pulled</button>');
+      actions.push('<button type="button" class="chip chip-cut" data-act="cut" data-id="' + s.id + '">Cut</button>');
+    }
+
+    return '<article class="strand">' +
+      tag +
+      '<div class="strand-top"><h4>' + esc(s.title) + "</h4>" + meterHtml(s.tension) + "</div>" +
+      (s.why ? "<p>" + esc(s.why) + "</p>" : "") +
+      (s.firstStep
+        ? '<div class="step">' + esc(s.firstStep) + '<span class="mins">' + s.minutes + " min to start</span></div>"
+        : "") +
+      '<div class="strand-actions">' + actions.join("") + "</div>" +
+    "</article>";
+  }
+
+  function emptyHtml() {
+    return '<div class="empty">' +
+      "<p>Nothing on the board. Dump everything that's on you into the box above and hit " +
+      "<strong>Untangle</strong> — it comes back as one live wire, the strands that actually hold, " +
+      "and the slack you can drop.</p>" +
+      '<div class="empty-actions">' +
+        '<button type="button" class="btn" data-act="sample">Load a sample tangle</button>' +
+      "</div>" +
+    "</div>";
+  }
+
+  function renderBundle() {
+    var open = openStrands();
+    var body = $("bundleBody");
+    var count = $("bundleCount");
+
+    if (!open.length) {
+      body.innerHTML = emptyHtml();
+      count.textContent = "";
+      return;
+    }
+
+    var live = open.filter(function (s) { return s.kind !== "cut"; }).length;
+    var cut = open.length - live;
+    count.textContent = live + " carrying" + (cut ? " · " + cut + " cut" : "");
+
+    var order = ["load-bearing", "frayed", "slack", "cut"];
+    var html = "";
+
+    order.forEach(function (kind) {
+      var group = open.filter(function (s) { return s.kind === kind; });
+      if (!group.length) return;
+      group.sort(function (a, b) { return b.tension - a.tension; });
+      html += '<section class="group ' + KIND[kind].cls + '">' +
+        '<div class="group-hd"><span>' + KIND[kind].label + '</span><span class="rule"></span>' +
+        '<span class="n">' + group.length + "</span></div>" +
+        group.map(strandHtml).join("") +
+      "</section>";
+    });
+
+    html += '<div class="dump-row"><button type="button" class="btn btn-quiet" data-act="rerank">Re-rank the bundle</button></div>';
+    body.innerHTML = html;
+  }
+
+  function renderPulled() {
+    var done = state.strands.filter(function (s) { return s.status === "pulled"; });
+    var sec = $("pulled");
+    if (!done.length) { sec.hidden = true; return; }
+    sec.hidden = false;
+    $("pulledBody").innerHTML =
+      "<ul>" + done.slice().reverse().map(function (s) {
+        return '<li><span class="tick">&times;</span><span class="t">' + esc(s.title) + "</span>" +
+               '<button type="button" class="chip" data-act="restore" data-id="' + s.id + '">Undo</button></li>';
+      }).join("") + "</ul>";
+  }
+
+  function render() {
+    renderLive();
+    renderBundle();
+    renderPulled();
+  }
+
+  /* ---------- actions ---------- */
+
+  function setLive(id) {
+    state.strands.forEach(function (s) { s.live = (s.id === id); });
+    state.liveId = id;
+  }
+
+  function pickNextLive(skipId) {
+    var open = openStrands().filter(function (s) {
+      return s.kind !== "cut" && s.id !== skipId;
+    });
+    open.sort(function (a, b) {
+      var d = KIND[a.kind].rank - KIND[b.kind].rank;
+      return d !== 0 ? d : b.tension - a.tension;
+    });
+    setLive(open.length ? open[0].id : null);
+  }
+
+  function handleAction(act, id) {
+    var s = id ? byId(id) : null;
+
+    if (act === "sample") { loadSample(); return; }
+    if (act === "rerank") { rerank(); return; }
+    if (!s) return;
+
+    if (act === "pull") {
+      s.status = "pulled";
+      if (state.liveId === s.id) pickNextLive(s.id);
+      toast("Pulled: " + s.title);
+    } else if (act === "cut") {
+      s.kind = "cut";
+      s.firstStep = "";
+      if (state.liveId === s.id) pickNextLive(s.id);
+      toast("Cut. One less thing pulling.");
+    } else if (act === "coil") {
+      s.kind = "slack";
+      if (state.liveId === s.id) pickNextLive(s.id);
+      toast("Coiled — it'll keep.");
+    } else if (act === "live") {
+      setLive(s.id);
+    } else if (act === "next") {
+      pickNextLive(s.id);
+    } else if (act === "restore") {
+      s.status = "open";
+      if (s.kind === "cut") s.kind = "slack";
+      if (!state.liveId) setLive(s.id);
+    } else if (act === "delete") {
+      state.strands = state.strands.filter(function (x) { return x.id !== id; });
+      if (state.liveId === id) pickNextLive(id);
+    }
+
+    persist();
+    render();
+  }
+
+  /* ---------- untangle ---------- */
+
+  function setBusy(on, label) {
+    state.busy = on;
+    var btn = $("untangleBtn");
+    btn.disabled = on;
+    btn.textContent = on ? (label || "Untangling…") : "Untangle";
+  }
+
+  function note(msg, bad) {
+    var el = $("dumpNote");
+    el.textContent = msg || "";
+    el.className = "note" + (bad ? " bad" : "");
+  }
+
+  function untangle() {
+    if (state.busy) return;
+    var text = $("dumpText").value.trim();
+    if (!text) { note("Nothing to untangle yet.", true); $("dumpText").focus(); return; }
+
+    setBusy(true);
+    note("Reading the tangle…");
+
+    var existing = openStrands().filter(function (s) { return !s.example && s.kind !== "cut"; });
+
+    callClaude(text, existing).then(function (raw) {
+      var fresh = normalise(raw);
+      if (!fresh.length) throw new Error("Nothing came back. Try again with a bit more detail.");
+
+      // the reply re-ranks everything, so the old open board is replaced
+      var pulled = state.strands.filter(function (s) { return s.status === "pulled"; });
+      state.strands = pulled.concat(fresh);
+
+      var live = fresh.filter(function (s) { return s.live; })[0];
+      state.liveId = live ? live.id : null;
+
+      $("dumpText").value = "";
+      persist();
+      render();
+      note(fresh.length + " strands. One live.");
+      $("live").scrollIntoView({ behavior: "smooth", block: "start" });
+    }).catch(function (err) {
+      var msg = err && err.message ? err.message : "Something went wrong.";
+      if (/Failed to fetch|NetworkError/i.test(msg)) {
+        msg = "Couldn't reach Anthropic. Check the connection and the key.";
+      }
+      note(msg, true);
+    }).then(function () {
+      setBusy(false);
+    });
+  }
+
+  function rerank() {
+    var open = openStrands().filter(function (s) { return s.kind !== "cut"; });
+    if (!open.length) return;
+    var dump = "Nothing new has come in. Re-rank what is already on the board as it stands today, " +
+      "cutting anything that no longer earns its place:\n" +
+      open.map(function (s) {
+        return "- " + s.title + (s.why ? " — " + s.why : "");
+      }).join("\n");
+
+    setBusy(true, "Re-ranking…");
+    note("Re-ranking the bundle…");
+
+    callClaude(dump, []).then(function (raw) {
+      var fresh = normalise(raw);
+      if (!fresh.length) throw new Error("Nothing came back.");
+      var pulled = state.strands.filter(function (s) { return s.status === "pulled"; });
+      state.strands = pulled.concat(fresh);
+      var live = fresh.filter(function (s) { return s.live; })[0];
+      state.liveId = live ? live.id : null;
+      persist();
+      render();
+      note("Re-ranked.");
+    }).catch(function (err) {
+      note(err && err.message ? err.message : "Re-rank failed.", true);
+    }).then(function () {
+      setBusy(false);
+    });
+  }
+
+  /* ---------- sample ---------- */
+
+  var SAMPLE = [
+    { title: "Close the two signed pilots", kind: "load-bearing", tension: 4,
+      why: "Both are verbally in and neither has a contract. Until they sign you have no revenue story for the raise.",
+      firstStep: "Send both the same one-page agreement today, unchanged, with a Friday date on it.", minutes: 25 },
+    { title: "Hire the second engineer", kind: "load-bearing", tension: 3,
+      why: "You are the bottleneck on every ship. Every week without a second pair of hands costs a release.",
+      firstStep: "Write the role in four lines and post it in the two Slack groups you already belong to.", minutes: 20 },
+    { title: "Investor update is nine days late", kind: "frayed", tension: 5,
+      why: "Three people are waiting and the silence is being read as bad news.",
+      firstStep: "Open a blank email, write the three numbers and one ask, send without editing.", minutes: 15 },
+    { title: "Reply to the accelerator", kind: "frayed", tension: 4,
+      why: "Their deadline is Thursday and the form takes twenty minutes.",
+      firstStep: "Open the form and fill only the company description field.", minutes: 20 },
+    { title: "Redo the website copy", kind: "slack", tension: 2,
+      why: "Nobody has bounced because of the copy. It can wait until the pilots sign.",
+      firstStep: "Park it. Revisit after the two contracts are back.", minutes: 5 },
+    { title: "Rebuild the pitch deck template", kind: "cut", tension: 4,
+      why: "This is the thing you do when you don't want to send the investor update. The deck is fine.", minutes: 0 }
+  ];
+
+  function loadSample() {
+    var pulled = state.strands.filter(function (s) { return s.status === "pulled"; });
+    var fresh = SAMPLE.map(function (s, i) {
+      return {
+        id: uid(),
+        title: s.title, kind: s.kind, tension: s.tension, why: s.why,
+        firstStep: s.firstStep || "", minutes: s.minutes,
+        status: "open", example: true, live: i === 2
+      };
+    });
+    state.strands = pulled.concat(fresh);
+    state.liveId = fresh[2].id;
+    persist();
+    render();
+    note("Sample tangle loaded. Add your key to untangle a real one.");
+  }
+
+  /* ---------- theme ---------- */
+
+  function applyTheme(mode) {
+    if (mode === "dark" || mode === "light") {
+      document.documentElement.setAttribute("data-theme", mode);
+    } else {
+      document.documentElement.removeAttribute("data-theme");
+    }
+  }
+
+  function cycleTheme() {
+    var cur = load(KEYS.theme, "system");
+    var next = cur === "system" ? "dark" : cur === "dark" ? "light" : "system";
+    save(KEYS.theme, next);
+    applyTheme(next);
+    toast("Theme: " + next);
+  }
+
+  /* ---------- wiring ---------- */
+
+  function init() {
+    applyTheme(load(KEYS.theme, "system"));
+
+    $("apiKey").value = state.apiKey;
+    $("model").value = state.model;
+    $("context").value = state.context;
+
+    $("apiKey").addEventListener("change", function () {
+      state.apiKey = this.value.trim();
+      save(KEYS.apiKey, state.apiKey);
+      if (state.apiKey) toast("Key saved in this browser.");
+    });
+    $("model").addEventListener("change", function () {
+      state.model = this.value;
+      save(KEYS.model, state.model);
+    });
+    $("context").addEventListener("change", function () {
+      state.context = this.value;
+      save(KEYS.context, state.context);
+    });
+
+    $("settingsBtn").addEventListener("click", function () {
+      var panel = $("settings");
+      var open = panel.hidden;
+      panel.hidden = !open;
+      this.setAttribute("aria-expanded", String(open));
+      if (open) $("apiKey").focus();
+    });
+
+    $("themeBtn").addEventListener("click", cycleTheme);
+    $("untangleBtn").addEventListener("click", untangle);
+
+    $("dumpText").addEventListener("keydown", function (e) {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); untangle(); }
+    });
+
+    $("wipeBtn").addEventListener("click", function () {
+      Object.keys(KEYS).forEach(function (k) {
+        try { localStorage.removeItem(KEYS[k]); } catch (e) {}
+      });
+      state.strands = []; state.liveId = null; state.apiKey = ""; state.context = "";
+      $("apiKey").value = ""; $("context").value = "";
+      render();
+      toast("Wiped. Nothing left on this device.");
+    });
+
+    document.addEventListener("click", function (e) {
+      var btn = e.target.closest ? e.target.closest("[data-act]") : null;
+      if (!btn) return;
+      handleAction(btn.getAttribute("data-act"), btn.getAttribute("data-id"));
+    });
+
+    if (!state.apiKey) {
+      note("Add your API key in settings to untangle a real dump.");
+    }
+
+    render();
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+})();

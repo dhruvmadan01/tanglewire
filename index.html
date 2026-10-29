@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TangleWire</title>
+<meta name="description" content="Dump everything that's on you. TangleWire untangles it into one live wire, the strands that hold, and the slack you can drop.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#dump">Skip to the dump</a>
+
+<header class="topbar">
+  <div class="shell topbar-in">
+    <div class="brand">
+      <svg class="knot" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+        <circle cx="13" cy="13" r="11.2"></circle>
+        <path d="M4.5 16.2c4.2-7.4 12.8-7.4 17 0" stroke-linecap="round"></path>
+        <path d="M4.5 9.8c4.2 7.4 12.8 7.4 17 0" stroke-linecap="round"></path>
+      </svg>
+      <span class="wordmark">TangleWire</span>
+    </div>
+    <div class="topbar-actions">
+      <button type="button" id="themeBtn" class="icon-btn" aria-label="Switch colour theme">
+        <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="5.2"></circle><path d="M10 1v2.2M10 16.8V19M19 10h-2.2M3.2 10H1M16.4 3.6l-1.6 1.6M5.2 14.8l-1.6 1.6M16.4 16.4l-1.6-1.6M5.2 5.2L3.6 3.6" stroke-linecap="round"></path></svg>
+      </button>
+      <button type="button" id="settingsBtn" class="icon-btn" aria-label="Settings" aria-expanded="false" aria-controls="settings">
+        <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="2.8"></circle><path d="M10 1.4v2M10 16.6v2M18.6 10h-2M3.4 10h-2M16.1 3.9l-1.4 1.4M5.3 14.7l-1.4 1.4M16.1 16.1l-1.4-1.4M5.3 5.3L3.9 3.9" stroke-linecap="round"></path></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<section id="settings" class="settings" hidden>
+  <div class="shell settings-in">
+    <div class="field">
+      <label for="apiKey">Anthropic API key</label>
+      <input type="password" id="apiKey" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
+      <p class="hint">Stored in this browser only, never sent anywhere but Anthropic. Get one at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>.</p>
+    </div>
+    <div class="field">
+      <label for="model">Model</label>
+      <select id="model">
+        <option value="claude-sonnet-5-5">Sonnet 5.5 — fast, good default</option>
+        <option value="claude-opus-5">Opus 5 — slower, sharper calls</option>
+        <option value="claude-haiku-5-5">Haiku 5.5 — cheapest</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="context">Standing context <span class="opt">optional</span></label>
+      <textarea id="context" rows="3" placeholder="What the company is, what stage, what you're actually trying to hit this quarter."></textarea>
+      <p class="hint">Sent with every untangle so the ranking knows what matters to you.</p>
+    </div>
+    <div class="settings-foot">
+      <button type="button" id="wipeBtn" class="btn btn-quiet">Wipe everything on this device</button>
+    </div>
+  </div>
+</section>
+
+<main class="shell">
+
+  <section id="live" class="live" aria-labelledby="liveHd" hidden>
+    <h2 id="liveHd" class="eyebrow">The live wire</h2>
+    <div id="liveBody"></div>
+  </section>
+
+  <section id="dump" class="dump" aria-labelledby="dumpHd">
+    <h2 id="dumpHd" class="eyebrow">What's on you</h2>
+    <textarea id="dumpText" rows="5" placeholder="Everything. Half-thoughts, the thing you keep not doing, who's waiting on you, the email you reread this morning. Don't organise it — that's the job."></textarea>
+    <div class="dump-row">
+      <button type="button" id="untangleBtn" class="btn btn-go">Untangle</button>
+      <span id="dumpNote" class="note"></span>
+    </div>
+  </section>
+
+  <section id="bundle" class="bundle" aria-labelledby="bundleHd">
+    <div class="bundle-hd">
+      <h2 id="bundleHd" class="eyebrow">The bundle</h2>
+      <span id="bundleCount" class="count"></span>
+    </div>
+    <div id="bundleBody"></div>
+  </section>
+
+  <section id="pulled" class="pulled" aria-labelledby="pulledHd" hidden>
+    <h2 id="pulledHd" class="eyebrow">Pulled</h2>
+    <div id="pulledBody"></div>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <div class="shell">
+    <p>TangleWire runs entirely in this browser. Your dumps, your strands and your key never leave the device except to go to Anthropic.</p>
+  </div>
+</footer>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="assets/app.js"></script>
+</body>
+</html>
